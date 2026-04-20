@@ -764,44 +764,56 @@ updateWaveform('idle');
         wsUrl: 'ws://localhost:8765', 
         wakeWords: ['vexa', 'hey vexa', 'oye vexa', 'hola'], 
         autoConnect: true,
-        debug: true
+        debug: false
     };
     let ws = null, connected = false, recognition = null, currentState = 'idle';
-    let wakeWordEnabled = false; // Empezar sin wake word para probar
+    let isListening = false;
     
     function connect() {
         try {
             ws = new WebSocket(CONFIG.wsUrl);
             ws.onopen = () => { console.log('[VEXA] Conectado'); connected = true; };
             ws.onmessage = (e) => { const d = JSON.parse(e.data); handleMsg(d); };
-            ws.onclose = () => { 
-                connected = false; 
-                if(CONFIG.debug) console.log('[VEXA] Desconectado, reconectando...');
-                setTimeout(connect, 3000); 
-            };
+            ws.onclose = () => { connected = false; setTimeout(connect, 3000); };
             ws.onerror = (e) => console.error('[VEXA] Error:', e);
-        } catch(e) { 
-            if(CONFIG.debug) console.error('[VEXA] Error:', e);
-            setTimeout(connect, 3000); 
-        }
+        } catch(e) { setTimeout(connect, 3000); }
     }
     
     function handleMsg(data) {
-        if(CONFIG.debug) console.log('[VEXA] Mensaje:', data.type);
-        switch(data.type) {
-            case 'stateChange': 
-                changeState(data.data.state); 
-                break;
-            case 'responseStart': 
-                changeState('thinking'); 
-                break;
-            case 'responseEnd': 
-                changeState('speaking'); 
-                setTimeout(()=>changeState('idle'),2000); 
-                break;
-            case 'amplitude': 
-                window.vexaAmp = data.data.amplitude; 
-                break;
+        if(data.type === 'stateChange') changeState(data.data.state);
+        else if(data.type === 'responseStart') changeState('thinking');
+        else if(data.type === 'responseChunk' || data.type === 'responseEnd') {
+            changeState('speaking');
+            // Speak the response with TTS
+            const text = data.data.text || data.data;
+            console.log('[VEXA] TTS:', text);
+            if(text && typeof speechSynthesis !== 'undefined') {
+                // Cancelar cualquier audio anterior
+                speechSynthesis.cancel();
+                
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'es-ES';
+                utterance.rate = 1.1;
+                utterance.pitch = 1.0;
+                utterance.volume = 1.0;
+                
+                // Buscar voz española
+                const voices = speechSynthesis.getVoices();
+                const spanVoice = voices.find(v => v.lang.includes('es'));
+                if(spanVoice) utterance.voice = spanVoice;
+                
+                utterance.onend = () => {
+                    setTimeout(() => changeState('idle'), 500);
+                };
+                
+                utterance.onerror = (e) => {
+                    console.log('[VEXA] TTS Error:', e);
+                    changeState('idle');
+                };
+                
+                speechSynthesis.speak(utterance);
+                console.log('[VEXA] Hablando...');
+            }
         }
     }
     
@@ -822,101 +834,56 @@ updateWaveform('idle');
     
     function initVoice() {
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SR) {
-            console.warn('[VEXA] Voz no soportada');
-            alert(' speech recognition not supported');
-            return;
-        }
+        if (!SR) { console.warn('[VEXA] Voz no soportada'); return; }
         
         recognition = new SR();
         recognition.continuous = true;
         recognition.interimResults = true;
         recognition.lang = 'es-ES';
         
-        recognition.onstart = function() {
-            if(CONFIG.debug) console.log('[VEXA] Recognizer Started');
-            changeState('listening');
-        };
+        recognition.onstart = function() { isListening = true; changeState('listening'); };
         
         recognition.onresult = function(event) {
             let transcript = '';
-            for(let i = event.resultIndex; i < event.results.length; i++) {
-                transcript += event.results[i][0].transcript;
-            }
-            
+            for(let i = event.resultIndex; i < event.results.length; i++) transcript += event.results[i][0].transcript;
             if (transcript.trim()) {
-                if(CONFIG.debug) console.log('[VEXA] Recognized:', transcript);
-                
-                const lower = transcript.toLowerCase().trim();
-                
-                // Sin wake word por ahora - procesar todo
-                if (lower.length > 2) {
-                    sendCommand(lower);
-                }
+                sendCommand(transcript.trim());
+                recognition.stop();
             }
         };
         
-        recognition.onend = function() {
-            if(CONFIG.debug) console.log('[VEXA] Recognizer Ended');
-            if (currentState === 'listening') {
-                changeState('idle');
-            }
-        };
+        recognition.onend = function() { isListening = false; };
+        recognition.onerror = function(e) { console.error('[VEXA] Error voz:', e); };
         
-        recognition.onerror = function(event) {
-            console.error('[VEXA] Recognizer Error:', event.error);
-        };
-        
-        if(CONFIG.debug) console.log('[VEXA] Voice recognition inicializado');
         window.vexaRec = recognition;
     }
     
     function toggleVoice() {
-        if (!recognition) {
-            initVoice();
-            return;
-        }
-        
-        if (recognition.state === 'running') {
-            recognition.stop();
-            if(CONFIG.debug) console.log('[VEXA] Recognizer Detenido');
-        } else {
-            try {
-                recognition.start();
-                if(CONFIG.debug) console.log('[VEXA] Recognizer Iniciado');
-            } catch(e) {
-                console.error('[VEXA] Error:', e);
-            }
-        }
+        if (!recognition) initVoice();
+        if (!recognition) return;
+        try {
+            if (isListening) recognition.stop();
+            else recognition.start();
+        } catch(e) { console.error('[VEXA] Error:', e); }
+    }
+    
+    // Cargar voces al inicio
+    if (typeof speechSynthesis !== 'undefined') {
+        speechSynthesis.getVoices();
+        speechSynthesis.onvoiceschanged = () => console.log('[VEXA] Voces cargadas');
     }
     
     // Iniciar
     if (CONFIG.autoConnect) {
         connect();
-        
-        document.addEventListener('keydown', function(e) {
-            if(e.key === ' ' && !e.target.matches('input, textarea, [contenteditable]')) {
+        document.addEventListener('keydown', e => {
+            if(e.key === ' ' && !e.target.matches('input, textarea')) {
                 e.preventDefault();
-                toggleVoice();
-            }
-        });
-        
-        // También hacer click en la interfaz para activar
-        document.addEventListener('click', function() {
-            if(document.activeElement === document.body) {
                 toggleVoice();
             }
         });
     }
     
-    window.VEXA = { 
-        connect, 
-        speak: function(t) { sendCommand(t); },
-        isConnected: function() { return connected; },
-        toggleVoice: toggleVoice,
-        startVoice: function() { if(recognition && recognition.state !== 'running') recognition.start(); },
-        stopVoice: function() { if(recognition && recognition.state === 'running') recognition.stop(); }
-    };
-    
+    window.VEXA = { connect, isConnected: () => connected, toggleVoice };
 })();
 </script>

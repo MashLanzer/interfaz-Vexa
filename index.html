@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VEXA — AI Interface</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --white: #ffffff;
+    --off-white: #e8e8e8;
+    --light: #b0b0b0;
+    --mid: #606060;
+    --dark: #1a1a1a;
+    --black: #000000;
+    --accent: #ffffff;
+    --mono: 'Share Tech Mono', monospace;
+    --sans: 'Rajdhani', sans-serif;
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: #000;
+    color: var(--white);
+    font-family: var(--sans);
+    overflow: hidden;
+    cursor: none;
+  }
+
+  /* Custom cursor */
+  #cursor {
+    position: fixed;
+    width: 6px; height: 6px;
+    background: white;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 9999;
+    transform: translate(-50%, -50%);
+    transition: width 0.2s, height 0.2s, opacity 0.2s;
+  }
+  #cursor-ring {
+    position: fixed;
+    width: 28px; height: 28px;
+    border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 9998;
+    transform: translate(-50%, -50%);
+    transition: width 0.3s, height 0.3s, border-color 0.3s;
+  }
+
+  /* Grid background */
+  #grid-bg {
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 60px 60px;
+    animation: gridDrift 20s linear infinite;
+  }
+  @keyframes gridDrift {
+    0% { transform: translate(0, 0); }
+    100% { transform: translate(60px, 60px); }
+  }
+
+  /* Vignette */
+  #vignette {
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.85) 100%);
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  /* Main canvas */
+  #mainCanvas {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 3;
+  }
+
+  /* HUD elements */
+  .hud {
+    position: fixed;
+    z-index: 10;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: rgba(255,255,255,0.35);
+    letter-spacing: 0.12em;
+    line-height: 1.8;
+    text-transform: uppercase;
+  }
+
+  /* Top left HUD */
+  #hud-tl {
+    top: 32px; left: 36px;
+  }
+  .hud-label {
+    color: rgba(255,255,255,0.15);
+    font-size: 8px;
+    margin-bottom: 2px;
+  }
+  .hud-value {
+    color: rgba(255,255,255,0.5);
+    font-size: 11px;
+  }
+  .hud-block { margin-bottom: 18px; }
+
+  /* Top right HUD */
+  #hud-tr {
+    top: 32px; right: 36px;
+    text-align: right;
+  }
+
+  /* Bottom left */
+  #hud-bl {
+    bottom: 32px; left: 36px;
+  }
+
+  /* Bottom right */
+  #hud-br {
+    bottom: 32px; right: 36px;
+    text-align: right;
+  }
+
+  /* Center top — state label */
+  #state-label {
+    position: fixed;
+    top: 32px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.35em;
+    color: rgba(255,255,255,0.4);
+    text-transform: uppercase;
+  }
+  #state-label span {
+    color: rgba(255,255,255,0.9);
+    font-size: 11px;
+  }
+
+  /* Center bottom — name */
+  #center-bottom {
+    position: fixed;
+    bottom: 36px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    text-align: center;
+  }
+  #entity-name {
+    font-family: var(--sans);
+    font-weight: 300;
+    font-size: 28px;
+    letter-spacing: 0.6em;
+    color: rgba(255,255,255,0.85);
+    text-indent: 0.6em;
+  }
+  #entity-sub {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.25em;
+    color: rgba(255,255,255,0.2);
+    margin-top: 6px;
+    text-align: center;
+  }
+
+  /* State buttons */
+  #state-controls {
+    position: fixed;
+    bottom: 100px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: flex;
+    gap: 24px;
+    align-items: center;
+  }
+  .state-btn {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    color: rgba(255,255,255,0.25);
+    text-transform: uppercase;
+    background: none;
+    border: none;
+    cursor: none;
+    padding: 8px 16px;
+    border: 1px solid rgba(255,255,255,0.08);
+    transition: all 0.4s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .state-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(255,255,255,0);
+    transition: background 0.4s;
+  }
+  .state-btn:hover::before { background: rgba(255,255,255,0.05); }
+  .state-btn.active {
+    color: rgba(255,255,255,0.9);
+    border-color: rgba(255,255,255,0.3);
+  }
+  .state-btn.active::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 50%;
+    transform: translateX(-50%);
+    width: 30%; height: 1px;
+    background: white;
+  }
+
+  /* Corner decorations */
+  .corner {
+    position: fixed;
+    width: 20px; height: 20px;
+    z-index: 10;
+    opacity: 0.25;
+  }
+  .corner-tl { top: 20px; left: 20px; border-top: 1px solid white; border-left: 1px solid white; }
+  .corner-tr { top: 20px; right: 20px; border-top: 1px solid white; border-right: 1px solid white; }
+  .corner-bl { bottom: 20px; left: 20px; border-bottom: 1px solid white; border-left: 1px solid white; }
+  .corner-br { bottom: 20px; right: 20px; border-bottom: 1px solid white; border-right: 1px solid white; }
+
+  /* Scanning line */
+  #scan-line {
+    position: fixed;
+    left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+    z-index: 5;
+    animation: scanMove 8s linear infinite;
+  }
+  @keyframes scanMove {
+    0% { top: 0%; opacity: 0; }
+    5% { opacity: 1; }
+    95% { opacity: 1; }
+    100% { top: 100%; opacity: 0; }
+  }
+
+  /* Waveform bar */
+  #waveform {
+    position: fixed;
+    bottom: 160px; left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    z-index: 10;
+    height: 24px;
+  }
+  .wave-bar {
+    width: 2px;
+    background: rgba(255,255,255,0.3);
+    border-radius: 1px;
+    transform-origin: center;
+    animation: wavePulse 1.2s ease-in-out infinite;
+  }
+
+  /* Micro data floats */
+  .micro-data {
+    position: fixed;
+    font-family: var(--mono);
+    font-size: 8px;
+    color: rgba(255,255,255,0.12);
+    letter-spacing: 0.1em;
+    z-index: 4;
+    animation: floatData 12s linear infinite;
+  }
+  @keyframes floatData {
+    0% { opacity: 0; transform: translateY(0); }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { opacity: 0; transform: translateY(-40px); }
+  }
+
+  /* Flicker animation for HUD values */
+  @keyframes flicker {
+    0%, 100% { opacity: 1; }
+    92% { opacity: 1; }
+    93% { opacity: 0.3; }
+    94% { opacity: 1; }
+    96% { opacity: 0.5; }
+    97% { opacity: 1; }
+  }
+  .hud-value { animation: flicker 7s infinite; }
+
+  /* Fade in on load */
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  body { animation: fadeIn 2s ease forwards; }
+</style>
+</head>
+<body>
+
+<!-- Custom cursor -->
+<div id="cursor"></div>
+<div id="cursor-ring"></div>
+
+<!-- Scan line -->
+<div id="scan-line"></div>
+
+<!-- Grid -->
+<div id="grid-bg"></div>
+<div id="vignette"></div>
+
+<!-- Corner decorations -->
+<div class="corner corner-tl"></div>
+<div class="corner corner-tr"></div>
+<div class="corner corner-bl"></div>
+<div class="corner corner-br"></div>
+
+<!-- Main canvas -->
+<canvas id="mainCanvas"></canvas>
+
+<!-- State label top center -->
+<div id="state-label">system status — <span id="state-text">IDLE</span></div>
+
+<!-- HUD Top Left -->
+<div class="hud" id="hud-tl">
+  <div class="hud-block">
+    <div class="hud-label">neural core</div>
+    <div class="hud-value" id="hud-core">v2.4.1-stable</div>
+  </div>
+  <div class="hud-block">
+    <div class="hud-label">uptime</div>
+    <div class="hud-value" id="hud-uptime">00:00:00</div>
+  </div>
+  <div class="hud-block">
+    <div class="hud-label">coherence</div>
+    <div class="hud-value" id="hud-coherence">98.7%</div>
+  </div>
+</div>
+
+<!-- HUD Top Right -->
+<div class="hud" id="hud-tr">
+  <div class="hud-block">
+    <div class="hud-label">sync freq</div>
+    <div class="hud-value" id="hud-freq">44.1 kHz</div>
+  </div>
+  <div class="hud-block">
+    <div class="hud-label">entropy</div>
+    <div class="hud-value" id="hud-entropy">0.023</div>
+  </div>
+  <div class="hud-block">
+    <div class="hud-label">latency</div>
+    <div class="hud-value" id="hud-latency">3ms</div>
+  </div>
+</div>
+
+<!-- HUD Bottom Left -->
+<div class="hud" id="hud-bl">
+  <div class="hud-block">
+    <div class="hud-label">particles</div>
+    <div class="hud-value" id="hud-particles">1,800</div>
+  </div>
+  <div class="hud-block">
+    <div class="hud-label">field depth</div>
+    <div class="hud-value">∞</div>
+  </div>
+</div>
+
+<!-- HUD Bottom Right -->
+<div class="hud" id="hud-br">
+  <div class="hud-block">
+    <div class="hud-label">session id</div>
+    <div class="hud-value" id="hud-session">--</div>
+  </div>
+  <div class="hud-block">
+    <div class="hud-label">memory</div>
+    <div class="hud-value" id="hud-memory">--</div>
+  </div>
+</div>
+
+<!-- Waveform -->
+<div id="waveform"></div>
+
+<!-- State controls -->
+<div id="state-controls">
+  <button class="state-btn active" data-state="idle">idle</button>
+  <button class="state-btn" data-state="listening">listening</button>
+  <button class="state-btn" data-state="thinking">thinking</button>
+  <button class="state-btn" data-state="speaking">speaking</button>
+</div>
+
+<!-- Center bottom name -->
+<div id="center-bottom">
+  <div id="entity-name">VEXA</div>
+  <div id="entity-sub">artificial intelligence — neural presence system</div>
+</div>
+
+<script>
+// ─── State Management ──────────────────────────────────────────────
+const STATES = { idle: 'IDLE', listening: 'LISTENING', thinking: 'THINKING', speaking: 'SPEAKING' };
+let currentState = 'idle';
+let stateTime = 0;
+
+// ─── Canvas Setup ──────────────────────────────────────────────────
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d');
+let W, H, CX, CY, RADIUS;
+
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W;
+  canvas.height = H;
+  CX = W / 2;
+  CY = H / 2;
+  RADIUS = Math.min(W, H) * 0.16;
+}
+resize();
+window.addEventListener('resize', () => { resize(); initParticles(); });
+
+// ─── Particles ────────────────────────────────────────────────────
+const NUM_PARTICLES = 1800;
+let particles = [];
+
+function initParticles() {
+  particles = [];
+  for (let i = 0; i < NUM_PARTICLES; i++) {
+    const phi = Math.acos(1 - 2 * (i + 0.5) / NUM_PARTICLES);
+    const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+    particles.push({
+      basePhi: phi,
+      baseTheta: theta,
+      phi, theta,
+      r: RADIUS,
+      noise: Math.random() * Math.PI * 2,
+      noiseSpeed: 0.002 + Math.random() * 0.004,
+      size: 0.6 + Math.random() * 1.0,
+      brightness: 0.3 + Math.random() * 0.7,
+      offset: Math.random() * Math.PI * 2,
+      radialOffset: (Math.random() - 0.5) * 8,
+    });
+  }
+}
+initParticles();
+
+// ─── Rings ────────────────────────────────────────────────────────
+const rings = [
+  { baseR: 1.55, width: 1.0, alpha: 0.12, dashLen: 8, gapLen: 30, rot: 0, rotSpeed: 0.0003 },
+  { baseR: 1.80, width: 0.5, alpha: 0.07, dashLen: 4, gapLen: 60, rot: 0, rotSpeed: -0.0005 },
+  { baseR: 2.10, width: 0.4, alpha: 0.05, dashLen: 2, gapLen: 90, rot: 0, rotSpeed: 0.0008 },
+  { baseR: 1.40, width: 1.5, alpha: 0.18, dashLen: 20, gapLen: 15, rot: 0, rotSpeed: -0.0002 },
+];
+
+// ─── Orbital dots ─────────────────────────────────────────────────
+const orbitals = [
+  { angle: 0, speed: 0.0008, r: 1.65, size: 2, alpha: 0.5 },
+  { angle: 2.1, speed: -0.0006, r: 1.78, size: 1.5, alpha: 0.35 },
+  { angle: 4.2, speed: 0.0012, r: 1.92, size: 1, alpha: 0.25 },
+];
+
+// ─── Energy pulses ────────────────────────────────────────────────
+let pulses = [];
+function spawnPulse() {
+  pulses.push({ r: RADIUS * 1.35, maxR: RADIUS * 2.8, alpha: 0.25, speed: 0.8 });
+}
+
+// ─── Waveform bars ────────────────────────────────────────────────
+const waveEl = document.getElementById('waveform');
+const NUM_BARS = 40;
+for (let i = 0; i < NUM_BARS; i++) {
+  const bar = document.createElement('div');
+  bar.className = 'wave-bar';
+  const delay = (i / NUM_BARS) * 1.2;
+  bar.style.animationDelay = delay + 's';
+  bar.style.height = '6px';
+  waveEl.appendChild(bar);
+}
+
+function updateWaveform(state) {
+  const bars = waveEl.querySelectorAll('.wave-bar');
+  bars.forEach((bar, i) => {
+    let h, dur, alpha;
+    if (state === 'idle') { h = 3 + Math.random() * 3; dur = 2.5; alpha = 0.15; }
+    else if (state === 'listening') { h = 4 + Math.random() * 10; dur = 0.8; alpha = 0.3; }
+    else if (state === 'thinking') { h = 5 + Math.random() * 8; dur = 0.5; alpha = 0.25; }
+    else { h = 6 + Math.random() * 16; dur = 0.3; alpha = 0.5; }
+    bar.style.height = h + 'px';
+    bar.style.animationDuration = dur + 's';
+    bar.style.background = `rgba(255,255,255,${alpha})`;
+  });
+}
+
+// ─── Micro data floats ────────────────────────────────────────────
+const microTexts = [
+  '0x4F2A1C','SYNC','3.14159','∇²ψ','01101001','Δt→0',
+  'NULL','0xFFFF','λ=420nm','∞','RTT:2ms','f(x)→∞',
+  'EOF','0b1010','resonance','φ=1.618','N=1800','kernel',
+  '0xDEAD','cos(θ)','∂/∂t','PROC','stack[0]','hz:44k',
+];
+
+function spawnMicroData() {
+  const el = document.createElement('div');
+  el.className = 'micro-data';
+  el.textContent = microTexts[Math.floor(Math.random() * microTexts.length)];
+  const angle = Math.random() * Math.PI * 2;
+  const dist = RADIUS * (1.8 + Math.random() * 1.5);
+  el.style.left = (CX + Math.cos(angle) * dist) + 'px';
+  el.style.top = (CY + Math.sin(angle) * dist) + 'px';
+  el.style.animationDuration = (8 + Math.random() * 8) + 's';
+  el.style.animationDelay = (Math.random() * 2) + 's';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 16000);
+}
+
+// ─── Noise function ───────────────────────────────────────────────
+function noise(x, y, t) {
+  return Math.sin(x * 2.3 + t) * Math.cos(y * 1.7 + t * 0.8) * 0.5 +
+         Math.sin(x * 0.9 - t * 1.1) * Math.sin(y * 3.1 + t) * 0.3 +
+         Math.cos(x * 4.1 + y * 2.3 + t * 0.6) * 0.2;
+}
+
+// ─── State params ─────────────────────────────────────────────────
+function getStateParams() {
+  switch(currentState) {
+    case 'idle':
+      return { breathAmp: 0.02, noiseAmp: 2, rotX: 0.0003, rotY: 0.0005, glowSize: 60, glowAlpha: 0.04, particleAlphaBase: 0.5 };
+    case 'listening':
+      return { breathAmp: 0.05, noiseAmp: 5, rotX: 0.0008, rotY: 0.001, glowSize: 90, glowAlpha: 0.07, particleAlphaBase: 0.65 };
+    case 'thinking':
+      return { breathAmp: 0.08, noiseAmp: 10, rotX: 0.002, rotY: 0.0015, glowSize: 100, glowAlpha: 0.09, particleAlphaBase: 0.75 };
+    case 'speaking':
+      return { breathAmp: 0.12, noiseAmp: 16, rotX: 0.001, rotY: 0.002, glowSize: 130, glowAlpha: 0.12, particleAlphaBase: 0.9 };
+  }
+}
+
+// ─── Rotation ─────────────────────────────────────────────────────
+let rotX = 0, rotY = 0;
+
+// ─── Main render loop ─────────────────────────────────────────────
+let t = 0;
+let lastPulse = 0;
+let lastMicro = 0;
+let frameCount = 0;
+
+function render() {
+  requestAnimationFrame(render);
+  t += 0.008;
+  frameCount++;
+  stateTime += 0.008;
+
+  const p = getStateParams();
+
+  // Clear
+  ctx.clearRect(0, 0, W, H);
+
+  // Breathe scale
+  const breathScale = 1 + Math.sin(t * 0.8) * p.breathAmp;
+
+  // Rotation
+  rotX += p.rotX;
+  rotY += p.rotY;
+
+  // ── Ambient glow ──
+  const grd = ctx.createRadialGradient(CX, CY, 0, CX, CY, RADIUS * p.glowSize / 10);
+  grd.addColorStop(0, `rgba(255,255,255,${p.glowAlpha})`);
+  grd.addColorStop(0.5, `rgba(255,255,255,${p.glowAlpha * 0.3})`);
+  grd.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Concentric rings ──
+  rings.forEach(ring => {
+    ring.rot += ring.rotSpeed * (currentState === 'thinking' ? 3 : 1);
+    const ringR = RADIUS * ring.baseR * breathScale;
+    ctx.save();
+    ctx.translate(CX, CY);
+    ctx.rotate(ring.rot);
+    ctx.beginPath();
+    ctx.arc(0, 0, ringR, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255,255,255,${ring.alpha})`;
+    ctx.lineWidth = ring.width;
+    ctx.setLineDash([ring.dashLen, ring.gapLen]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  });
+
+  // ── Pulses ──
+  if (t - lastPulse > (currentState === 'speaking' ? 0.8 : currentState === 'thinking' ? 1.5 : 3)) {
+    spawnPulse();
+    lastPulse = t;
+  }
+  pulses = pulses.filter(pulse => {
+    pulse.r += pulse.speed;
+    pulse.alpha *= 0.97;
+    if (pulse.alpha < 0.005 || pulse.r > pulse.maxR) return false;
+    ctx.beginPath();
+    ctx.arc(CX, CY, pulse.r, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255,255,255,${pulse.alpha})`;
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    return true;
+  });
+
+  // ── Orbital dots ──
+  orbitals.forEach(orb => {
+    orb.angle += orb.speed * (currentState === 'thinking' ? 4 : 1);
+    const ox = CX + Math.cos(orb.angle) * RADIUS * orb.r;
+    const oy = CY + Math.sin(orb.angle) * RADIUS * orb.r * 0.4;
+    ctx.beginPath();
+    ctx.arc(ox, oy, orb.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,255,255,${orb.alpha})`;
+    ctx.fill();
+    // Trail
+    for (let ti = 1; ti <= 8; ti++) {
+      const ta = orb.angle - orb.speed * ti * 15;
+      const tx2 = CX + Math.cos(ta) * RADIUS * orb.r;
+      const ty2 = CY + Math.sin(ta) * RADIUS * orb.r * 0.4;
+      ctx.beginPath();
+      ctx.arc(tx2, ty2, orb.size * (1 - ti/10), 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${orb.alpha * (1 - ti/10) * 0.3})`;
+      ctx.fill();
+    }
+  });
+
+  // ── Particles ──
+  const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+  const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+
+  particles.forEach((pt, i) => {
+    pt.noise += pt.noiseSpeed;
+
+    // Noise displacement
+    const nx = noise(Math.cos(pt.basePhi), Math.sin(pt.baseTheta), t * 0.3 + pt.offset);
+    const noiseDisplace = p.noiseAmp * nx;
+    const r = (RADIUS + noiseDisplace + pt.radialOffset) * breathScale;
+
+    // Fibonacci sphere position
+    const sinPhi = Math.sin(pt.basePhi);
+    const cosPhi = Math.cos(pt.basePhi);
+    const sinTheta = Math.sin(pt.baseTheta + t * 0.05);
+    const cosTheta = Math.cos(pt.baseTheta + t * 0.05);
+
+    let x = r * sinPhi * cosTheta;
+    let y = r * sinPhi * sinTheta;
+    let z = r * cosPhi;
+
+    // Rotate Y
+    let x2 = x * cosY - z * sinY;
+    let z2 = x * sinY + z * cosY;
+    x = x2; z = z2;
+
+    // Rotate X
+    let y2 = y * cosX - z * sinX;
+    z = y * sinX + z * cosX;
+    y = y2;
+
+    // Projection (orthographic with slight perspective)
+    const perspective = 1 + z / (RADIUS * 8);
+    const px2 = CX + x * perspective;
+    const py2 = CY + y * perspective;
+
+    // Depth-based alpha
+    const depthFactor = (z + RADIUS) / (2 * RADIUS);
+    const alpha = (depthFactor * 0.7 + 0.2) * pt.brightness * p.particleAlphaBase;
+    const size = pt.size * (0.5 + depthFactor * 0.8) * perspective;
+
+    ctx.beginPath();
+    ctx.arc(px2, py2, Math.max(0.3, size), 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.fill();
+  });
+
+  // ── Inner core glow ──
+  const coreGrd = ctx.createRadialGradient(CX, CY, 0, CX, CY, RADIUS * 0.5 * breathScale);
+  coreGrd.addColorStop(0, `rgba(255,255,255,${0.06 + p.breathAmp * 0.3})`);
+  coreGrd.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = coreGrd;
+  ctx.fillRect(CX - RADIUS, CY - RADIUS, RADIUS * 2, RADIUS * 2);
+
+  // Micro data
+  if (t - lastMicro > 2.5) {
+    spawnMicroData();
+    lastMicro = t;
+  }
+
+  // Update waveform occasionally
+  if (frameCount % 15 === 0) updateWaveform(currentState);
+}
+
+// ─── HUD live values ──────────────────────────────────────────────
+let uptimeStart = Date.now();
+function updateHUD() {
+  const elapsed = Math.floor((Date.now() - uptimeStart) / 1000);
+  const h = String(Math.floor(elapsed / 3600)).padStart(2,'0');
+  const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2,'0');
+  const s = String(elapsed % 60).padStart(2,'0');
+  document.getElementById('hud-uptime').textContent = `${h}:${m}:${s}`;
+  document.getElementById('hud-entropy').textContent = (0.018 + Math.random() * 0.01).toFixed(3);
+  document.getElementById('hud-latency').textContent = (2 + Math.floor(Math.random() * 4)) + 'ms';
+  document.getElementById('hud-coherence').textContent = (97.5 + Math.random() * 2).toFixed(1) + '%';
+  document.getElementById('hud-freq').textContent = (44.0 + Math.random() * 0.2).toFixed(1) + ' kHz';
+  document.getElementById('hud-memory').textContent = (3.8 + Math.random() * 0.4).toFixed(1) + ' GB';
+}
+setInterval(updateHUD, 1000);
+
+// Session ID
+const sid = Array.from({length: 8}, () => Math.floor(Math.random()*16).toString(16)).join('').toUpperCase();
+document.getElementById('hud-session').textContent = sid.slice(0,4) + '-' + sid.slice(4);
+
+// ─── State switching ──────────────────────────────────────────────
+document.querySelectorAll('.state-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    currentState = btn.dataset.state;
+    stateTime = 0;
+    document.querySelectorAll('.state-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('state-text').textContent = STATES[currentState];
+    updateWaveform(currentState);
+  });
+});
+
+// ─── Custom cursor ────────────────────────────────────────────────
+const cursorDot = document.getElementById('cursor');
+const cursorRing = document.getElementById('cursor-ring');
+let mx = 0, my = 0, rx = 0, ry = 0;
+
+document.addEventListener('mousemove', e => {
+  mx = e.clientX; my = e.clientY;
+  cursorDot.style.left = mx + 'px';
+  cursorDot.style.top = my + 'px';
+});
+
+function animCursor() {
+  rx += (mx - rx) * 0.12;
+  ry += (my - ry) * 0.12;
+  cursorRing.style.left = rx + 'px';
+  cursorRing.style.top = ry + 'px';
+  requestAnimationFrame(animCursor);
+}
+animCursor();
+
+document.querySelectorAll('.state-btn').forEach(btn => {
+  btn.addEventListener('mouseenter', () => {
+    cursorRing.style.width = '44px';
+    cursorRing.style.height = '44px';
+    cursorRing.style.borderColor = 'rgba(255,255,255,0.6)';
+  });
+  btn.addEventListener('mouseleave', () => {
+    cursorRing.style.width = '28px';
+    cursorRing.style.height = '28px';
+    cursorRing.style.borderColor = 'rgba(255,255,255,0.4)';
+  });
+});
+
+// ─── Start ────────────────────────────────────────────────────────
+render();
+updateWaveform('idle');
+</script>
+</body>
+</html>

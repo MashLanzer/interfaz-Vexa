@@ -760,9 +760,9 @@ updateWaveform('idle');
 
 // ─── VEXA Integration Layer ────────────────────────────────────────
 (function() {
-    const CONFIG = { wsUrl: 'ws://localhost:8765', autoConnect: true };
+    const CONFIG = { wsUrl: 'ws://localhost:8765' };
     let ws = null, connected = false, recognition = null, currentState = 'idle';
-    let restartTimeout = null;
+    let isProcessing = false;
     
     function connect() {
         try {
@@ -779,11 +779,12 @@ updateWaveform('idle');
         else if(data.type === 'responseChunk' || data.type === 'responseEnd') {
             changeState('speaking');
             const text = data.data.text || data.data;
-            if(text && speechSynthesis) {
+            if(text && speechSynthesis && !isProcessing) {
+                isProcessing = true;
                 speechSynthesis.cancel();
                 const u = new SpeechSynthesisUtterance(text);
                 u.lang = 'es-ES'; u.rate = 1.1;
-                u.onend = () => setTimeout(() => changeState('idle'), 500);
+                u.onend = () => { isProcessing = false; setTimeout(() => changeState('idle'), 500); };
                 speechSynthesis.speak(u);
             }
         }
@@ -811,54 +812,26 @@ updateWaveform('idle');
         recognition.onresult = function(event) {
             let t = '';
             for(let i = 0; i < event.results.length; i++) t += event.results[i][0].transcript;
-            if (t.trim()) {
+            if (t.trim() && !isProcessing) {
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({ type: 'userSpeech', data: { text: t.trim() } }));
                 }
             }
         };
         
-        recognition.onend = function() {
-            changeState('idle');
-            // Auto restart para siguiente vez
-            if (restartTimeout) clearTimeout(restartTimeout);
-            restartTimeout = setTimeout(() => {
-                if (recognition && currentState !== 'listening') {
-                    try { recognition.start(); } catch(e) {}
-                }
-            }, 500);
-        };
-        
+        recognition.onend = function() { changeState('idle'); };
         recognition.onerror = function(e) { console.log('[VEXA] Error:', e); changeState('idle'); };
         
         window.vexaRec = recognition;
     }
     
-    // Iniciar todo
     connect();
-    initVoice();
-    if (speechSynthesis) speechSynthesis.getVoices();
     
-    // Botón flotante para activar voz
-    const btn = document.createElement('div');
-    btn.id = 'vexa-mic-btn';
-    btn.innerHTML = '🎤';
-    btn.style.cssText = 'position:fixed;bottom:20px;right:20px;width:50px;height:50px;border-radius:50%;background:#fff;color:#000;border:none;cursor:pointer;font-size:24px;z-index:9999;box-shadow:0 2px 10px rgba(0,0,0,0.3)';
-    btn.onclick = function() {
-        if (!recognition) initVoice();
-        if (recognition) {
-            try { recognition.start(); } catch(e) { recognition.stop(); }
-        }
-    };
-    document.body.appendChild(btn);
-    
-    // Keyboard shortcut
     document.addEventListener('keydown', e => {
         if(e.key === ' ' && !e.target.matches('input, textarea')) {
             e.preventDefault();
-            if (!recognition) initVoice();
-            if (recognition) {
-                try { recognition.start(); } catch(e) { recognition.stop(); }
+            if (recognition && currentState === 'idle') {
+                try { recognition.start(); } catch(e) {}
             }
         }
     });

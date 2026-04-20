@@ -760,16 +760,17 @@ updateWaveform('idle');
 
 // ─── VEXA Integration Layer ────────────────────────────────────────
 (function() {
-    const CONFIG = { wsUrl: 'ws://localhost:8765' };
+    const CONFIG = { wsUrl: 'ws://localhost:8765', wakeWords: ['vexa', 'hey', 'oye', 'hola'] };
     let ws = null, connected = false, recognition = null, currentState = 'idle';
     let isProcessing = false;
     
     function connect() {
         try {
             ws = new WebSocket(CONFIG.wsUrl);
-            ws.onopen = () => { connected = true; };
+            ws.onopen = () => { connected = true; console.log('[VEXA] WS Connected'); };
             ws.onmessage = (e) => { const d = JSON.parse(e.data); handleMsg(d); };
             ws.onclose = () => { connected = false; setTimeout(connect, 3000); };
+            ws.onerror = (e) => console.log('[VEXA] WS Error');
         } catch(e) { setTimeout(connect, 3000); }
     }
     
@@ -798,40 +799,82 @@ updateWaveform('idle');
         if (btn) btn.click();
     }
     
+    function hasWakeWord(text) {
+        const t = text.toLowerCase();
+        return CONFIG.wakeWords.some(w => t.includes(w));
+    }
+    
     function initVoice() {
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SR) return;
+        if (!SR) { console.log('[VEXA] No voice support'); return; }
         
         recognition = new SR();
         recognition.continuous = false;
         recognition.interimResults = true;
         recognition.lang = 'es-ES';
         
-        recognition.onstart = function() { changeState('listening'); };
+        recognition.onstart = function() { 
+            console.log('[VEXA] Listening started');
+            changeState('listening'); 
+        };
         
         recognition.onresult = function(event) {
             let t = '';
             for(let i = 0; i < event.results.length; i++) t += event.results[i][0].transcript;
-            if (t.trim() && !isProcessing) {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'userSpeech', data: { text: t.trim() } }));
+            t = t.trim();
+            
+            if (t && !isProcessing) {
+                console.log('[VEXA] Heard:', t);
+                
+                // Check for wake word
+                if (hasWakeWord(t)) {
+                    // Extract command after wake word
+                    let cmd = t.toLowerCase();
+                    CONFIG.wakeWords.forEach(w => cmd = cmd.replace(w, '').trim());
+                    
+                    if (cmd && ws && ws.readyState === WebSocket.OPEN) {
+                        console.log('[VEXA] Command:', cmd);
+                        ws.send(JSON.stringify({ type: 'userSpeech', data: { text: cmd } }));
+                    }
                 }
             }
         };
         
-        recognition.onend = function() { changeState('idle'); };
-        recognition.onerror = function(e) { console.log('[VEXA] Error:', e); changeState('idle'); };
+        recognition.onend = function() { 
+            // Auto restart para seguir escuchando
+            if (currentState === 'listening' && !isProcessing) {
+                setTimeout(() => {
+                    if (recognition && currentState !== 'idle') {
+                        try { recognition.start(); } catch(e) {}
+                    }
+                }, 200);
+            }
+            changeState('idle'); 
+        };
+        
+        recognition.onerror = function(e) { 
+            console.log('[VEXA] Error:', e.error);
+            changeState('idle'); 
+        };
         
         window.vexaRec = recognition;
+        console.log('[VEXA] Voice ready');
+        
+        // Auto start listening
+        try { recognition.start(); } catch(e) {}
     }
     
     connect();
+    initVoice();
     
-    document.addEventListener('keydown', e => {
-        if(e.key === ' ' && !e.target.matches('input, textarea')) {
-            e.preventDefault();
-            if (recognition && currentState === 'idle') {
-                try { recognition.start(); } catch(e) {}
+    // Keyboard - ESPACIO para activar
+    document.addEventListener('keydown', function(e) {
+        if(e.key === ' ' || e.code === 'Space') {
+            if(e.target === document.body || e.target.tagName === 'BODY') {
+                e.preventDefault();
+                if (recognition && currentState === 'idle') {
+                    try { recognition.start(); } catch(e) {}
+                }
             }
         }
     });
